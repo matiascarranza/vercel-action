@@ -39,16 +39,18 @@ function slugify(str) {
 }
 
 function retry(fn, retries) {
-  async function attempt(retry) {
+  async function attempt(retryCount) {
     try {
       return await fn();
     } catch (error) {
-      if (retry > retries) {
+      if (retryCount > retries) {
         throw error;
       } else {
-        core.info(`retrying: attempt ${retry + 1} / ${retries + 1}`);
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        return attempt(retry + 1);
+        core.info(`retrying: attempt ${retryCount + 1} / ${retries + 1}`);
+        await new Promise((resolve) => {
+          setTimeout(resolve, 3000);
+        });
+        return attempt(retryCount + 1);
       }
     }
   }
@@ -72,8 +74,8 @@ const vercelBin = getVercelBin();
 const aliasDomains = core
   .getInput('alias-domains')
   .split('\n')
-  .filter(x => x !== '')
-  .map(s => {
+  .filter((x) => x !== '')
+  .map((s) => {
     let url = s;
     let branch = slugify(context.ref.replace('refs/heads/', ''));
     if (isPullRequestType(context.eventName)) {
@@ -119,36 +121,36 @@ function addVercelMetadata(key, value, providedArgs) {
   return ['-m', `${key}=${value}`];
 }
 
-
 /**
- * 
+ *
  * The following regex is used to split the vercelArgs string into an array of arguments.
  * It conserves strings wrapped in simple / double quotes, with nested different quotes, as a single argument.
- * 
+ *
  * Example:
- * 
+ *
  * parseArgs(`--env foo=bar "foo=bar baz" 'foo="bar baz"'`) => ['--env', 'foo=bar', 'foo=bar baz', 'foo="bar baz"']
  */
 function parseArgs(s) {
   const args = [];
+  const matches = Array.from(s.matchAll(/'([^']*)'|"([^"]*)"|[^\s]+/gm));
 
-  for (const match of s.matchAll(/'([^']*)'|"([^"]*)"|[^\s]+/gm)) {
+  matches.forEach((match) => {
     args.push(match[1] ?? match[2] ?? match[0]);
-  }
+  });
   return args;
 }
 
-async function vercelDeploy(ref, commit) {
+async function vercelDeploy(ref, commit, sha) {
   let myOutput = '';
   // eslint-disable-next-line no-unused-vars
   let myError = '';
   const options = {};
   options.listeners = {
-    stdout: data => {
+    stdout: (data) => {
       myOutput += data.toString();
       core.info(data.toString());
     },
-    stderr: data => {
+    stderr: (data) => {
       // eslint-disable-next-line no-unused-vars
       myError += data.toString();
       core.info(data.toString());
@@ -163,7 +165,7 @@ async function vercelDeploy(ref, commit) {
   const args = [
     ...providedArgs,
     ...['-t', vercelToken],
-    ...addVercelMetadata('githubCommitSha', context.sha, providedArgs),
+    ...addVercelMetadata('githubCommitSha', sha, providedArgs),
     ...addVercelMetadata('githubCommitAuthorName', context.actor, providedArgs),
     ...addVercelMetadata(
       'githubCommitAuthorLogin',
@@ -199,12 +201,12 @@ async function vercelInspect(deploymentUrl) {
   let myError = '';
   const options = {};
   options.listeners = {
-    stdout: data => {
+    stdout: (data) => {
       // eslint-disable-next-line no-unused-vars
       myOutput += data.toString();
       core.info(data.toString());
     },
-    stderr: data => {
+    stderr: (data) => {
       myError += data.toString();
       core.info(data.toString());
     },
@@ -252,7 +254,7 @@ async function findPreviousComment(text) {
   core.info('find comment');
   const { data: comments } = await findCommentsForEvent();
 
-  const vercelPreviewURLComment = comments.find(comment =>
+  const vercelPreviewURLComment = comments.find((comment) =>
     comment.body.startsWith(text),
   );
   if (vercelPreviewURLComment) {
@@ -265,7 +267,7 @@ async function findPreviousComment(text) {
 
 function joinDeploymentUrls(deploymentUrl, aliasDomains_) {
   if (aliasDomains_.length) {
-    const aliasUrls = aliasDomains_.map(domain => `https://${domain}`);
+    const aliasUrls = aliasDomains_.map((domain) => `https://${domain}`);
     return [deploymentUrl, ...aliasUrls].join('\n');
   }
   return deploymentUrl;
@@ -377,7 +379,7 @@ async function aliasDomainsToDeployment(deploymentUrl) {
     core.info('using scope');
     args.push('--scope', vercelScope);
   }
-  const promises = aliasDomains.map(domain =>
+  const promises = aliasDomains.map((domain) =>
     retry(
       () =>
         exec.exec('npx', [vercelBin, ...args, 'alias', deploymentUrl, domain]),
@@ -399,9 +401,7 @@ async function run() {
   let { sha } = context;
   await setEnv();
 
-  let commit = execSync('git log -1 --pretty=format:%B')
-    .toString()
-    .trim();
+  let commit = execSync('git log -1 --pretty=format:%B').toString().trim();
   if (github.context.eventName === 'push') {
     const pushPayload = github.context.payload;
     core.debug(`The head commit is: ${pushPayload.head_commit}`);
@@ -426,7 +426,7 @@ async function run() {
     }
   }
 
-  const deploymentUrl = await vercelDeploy(ref, commit);
+  const deploymentUrl = await vercelDeploy(ref, commit, sha);
 
   if (deploymentUrl) {
     core.info('set preview-url output');
@@ -467,6 +467,6 @@ async function run() {
   }
 }
 
-run().catch(error => {
+run().catch((error) => {
   core.setFailed(error.message);
 });
